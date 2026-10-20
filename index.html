@@ -4,8 +4,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport"
-        content="width=device-width, initial-scale=1, maximum-scale=1,
-                 user-scalable=no">
+        content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="theme-color" content="#000000">
   <title>Air Blackboard</title>
 
   <style>
@@ -28,7 +28,7 @@
       inset: 0;
       width: 100%;
       height: 100%;
-      background: black;
+      background: #000;
       touch-action: none;
     }
 
@@ -97,8 +97,8 @@
 
     #start button {
       margin-top: 12px;
-      background: #fff;
-      color: #000;
+      background: white;
+      color: black;
       font-weight: bold;
     }
 
@@ -128,10 +128,8 @@
 
   <div id="start">
     <h2>Air Blackboard</h2>
-    <p>
-      Draw with your index finger and thumb.
-      Allow camera access when prompted.
-    </p>
+    <p>Draw with your index finger and thumb.
+       Allow camera access when prompted.</p>
     <button id="startBtn">Start Camera</button>
     <p id="error"></p>
   </div>
@@ -143,43 +141,74 @@
     } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
 
     const canvas = document.getElementById("board");
-    const ctx = canvas.getContext("2d");
+    const ctx = canvas.getContext("2d", {
+      alpha: false,
+      desynchronized: true
+    });
+
     const video = document.getElementById("camera");
     const status = document.getElementById("status");
     const startPanel = document.getElementById("start");
     const startBtn = document.getElementById("startBtn");
     const errorBox = document.getElementById("error");
 
-    let handTracker;
+    let handTracker = null;
     let running = false;
+    let starting = false;
+    let animationId = 0;
+    let stream = null;
+
     let drawing = false;
+    let pinching = false;
     let lastPoint = null;
+    let smoothPoint = null;
+
     let wasFist = false;
     let lastClearTime = 0;
-    let lastDetectTime = -1;
+    let lastVideoTime = -1;
+    let lastDetectTime = 0;
+
+    // Lower resolution improves performance on slower phones.
+    const CAMERA_WIDTH = 480;
+    const CAMERA_HEIGHT = 360;
+
+    // Larger alpha = faster response, smaller = smoother.
+    const SMOOTHING = 0.45;
 
     function resizeCanvas() {
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+      const width = innerWidth;
+      const height = innerHeight;
 
-      canvas.width = Math.round(innerWidth * dpr);
-      canvas.height = Math.round(innerHeight * dpr);
-      canvas.style.width = innerWidth + "px";
-      canvas.style.height = innerHeight + "px";
+      canvas.width = Math.round(width * dpr);
+      canvas.height = Math.round(height * dpr);
+      canvas.style.width = width + "px";
+      canvas.style.height = height + "px";
 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, width, height);
+
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
       ctx.lineWidth = 5;
-      ctx.strokeStyle = "#ffffff";
+      ctx.strokeStyle = "#fff";
     }
 
     window.addEventListener("resize", resizeCanvas);
     resizeCanvas();
 
-    function clearBoard() {
-      ctx.clearRect(0, 0, innerWidth, innerHeight);
-      lastPoint = null;
+    function resetGesture() {
       drawing = false;
+      pinching = false;
+      lastPoint = null;
+      smoothPoint = null;
+    }
+
+    function clearBoard() {
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, innerWidth, innerHeight);
+      resetGesture();
     }
 
     document.getElementById("clear").addEventListener(
@@ -190,15 +219,13 @@
       return Math.hypot(a.x - b.x, a.y - b.y);
     }
 
-    // A fist is estimated by checking whether the four
-    // long fingertips have curled toward the palm.
     function isFist(lm) {
       const wrist = lm[0];
       const fingers = [
-        [8, 6],    // index tip and PIP
-        [12, 10],  // middle
-        [16, 14],  // ring
-        [20, 18]   // little
+        [8, 6],
+        [12, 10],
+        [16, 14],
+        [20, 18]
       ];
 
       let curled = 0;
@@ -226,88 +253,114 @@
       const thumb = lm[4];
       const index = lm[8];
 
-      // Distance is measured relative to hand size so
-      // the pinch can work at different camera distances.
       const handSize = Math.max(distance(lm[0], lm[9]), 0.001);
       const pinchDistance = distance(thumb, index) / handSize;
 
-      const pinching = pinchDistance < 0.28;
-      const fist = isFist(lm);
+      // Hysteresis: easier to start a pinch than to release it.
+      // This prevents rapid drawing on/off flickering.
+      if (pinching) {
+        if (pinchDistance > 0.34) pinching = false;
+      } else {
+        if (pinchDistance < 0.25) pinching = true;
+      }
 
-      // Fist clears once per gesture, not every video frame.
-      if (fist && !wasFist &&
-          performance.now() - lastClearTime > 900) {
+      const fist = isFist(lm);
+      const now = performance.now();
+
+      if (fist && !wasFist && now - lastClearTime > 900) {
         clearBoard();
-        lastClearTime = performance.now();
+        lastClearTime = now;
+        status.textContent = "✊ Board cleared";
       }
 
       wasFist = fist;
 
       if (fist) {
-        drawing = false;
-        lastPoint = null;
-        status.textContent = "✊ Fist detected — board cleared";
+        resetGesture();
+        status.textContent = "✊ Fist detected";
         return;
       }
 
-      if (pinching) {
-        // Use the index fingertip as the drawing point.
-        const point = {
-          x: (1 - index.x) * innerWidth,
-          y: index.y * innerHeight
-        };
-
-        if (lastPoint && drawing) {
-          drawSegment(lastPoint, point);
-        }
-
-        lastPoint = point;
-        drawing = true;
-        status.textContent = "✍ Drawing";
-      } else {
-        drawing = false;
-        lastPoint = null;
+      if (!pinching) {
+        resetGesture();
         status.textContent = "✋ Ready — pinch to draw";
+        return;
       }
+
+      // Mirror the horizontal position for a selfie-camera feel.
+      const target = {
+        x: (1 - index.x) * innerWidth,
+        y: index.y * innerHeight
+      };
+
+      // Exponential smoothing to reduce landmark jitter.
+      if (!smoothPoint) {
+        smoothPoint = { ...target };
+      } else {
+        smoothPoint.x += (target.x - smoothPoint.x) * SMOOTHING;
+        smoothPoint.y += (target.y - smoothPoint.y) * SMOOTHING;
+      }
+
+      const point = { ...smoothPoint };
+
+      if (lastPoint && drawing) {
+        drawSegment(lastPoint, point);
+      }
+
+      lastPoint = point;
+      drawing = true;
+      status.textContent = "✍ Drawing";
+    }
+
+    async function createTracker(vision, delegate) {
+      return HandLandmarker.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetPath:
+            "https://storage.googleapis.com/mediapipe-models/" +
+            "hand_landmarker/hand_landmarker/float16/1/" +
+            "hand_landmarker.task",
+          delegate
+        },
+        runningMode: "VIDEO",
+        numHands: 1,
+        minHandDetectionConfidence: 0.55,
+        minHandPresenceConfidence: 0.55,
+        minTrackingConfidence: 0.55
+      });
     }
 
     async function startCamera() {
+      if (starting || running) return;
+
+      starting = true;
       startBtn.disabled = true;
       startBtn.textContent = "Loading...";
       errorBox.textContent = "";
 
       try {
         if (!navigator.mediaDevices?.getUserMedia) {
-          throw new Error(
-            "Camera access requires HTTPS or localhost."
-          );
+          throw new Error("Camera requires HTTPS or localhost.");
         }
 
         const vision = await FilesetResolver.forVisionTasks(
           "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
         );
 
-        handTracker = await HandLandmarker.createFromOptions(
-          vision,
-          {
-            baseOptions: {
-              modelAssetPath:
-                "https://storage.googleapis.com/mediapipe-models/" +
-                "hand_landmarker/hand_landmarker/float16/1/" +
-                "hand_landmarker.task",
-              delegate: "GPU"
-            },
-            runningMode: "VIDEO",
-            numHands: 1
-          }
-        );
+        // Try GPU first, then CPU if GPU initialization fails.
+        try {
+          handTracker = await createTracker(vision, "GPU");
+        } catch (gpuError) {
+          console.warn("GPU unavailable; trying CPU", gpuError);
+          handTracker = await createTracker(vision, "CPU");
+        }
 
-        const stream = await navigator.mediaDevices.getUserMedia({
+        stream = await navigator.mediaDevices.getUserMedia({
           audio: false,
           video: {
             facingMode: "user",
-            width: { ideal: 640 },
-            height: { ideal: 480 }
+            width: { ideal: CAMERA_WIDTH },
+            height: { ideal: CAMERA_HEIGHT },
+            frameRate: { ideal: 24, max: 30 }
           }
         });
 
@@ -318,42 +371,85 @@
         startPanel.style.display = "none";
         status.textContent = "Show your hand to the camera";
 
-        requestAnimationFrame(trackHands);
+        lastVideoTime = -1;
+        lastDetectTime = 0;
+
+        animationId = requestAnimationFrame(trackHands);
       } catch (err) {
         console.error(err);
+
+        if (stream) {
+          stream.getTracks().forEach(track => track.stop());
+          stream = null;
+        }
+
+        if (handTracker) {
+          handTracker.close();
+          handTracker = null;
+        }
+
         errorBox.textContent =
           "Could not start: " + err.message +
           " Check your internet and camera permission.";
+
         startBtn.disabled = false;
         startBtn.textContent = "Try Again";
+      } finally {
+        starting = false;
       }
     }
 
     function trackHands() {
       if (!running) return;
 
-      if (video.readyState >= 2 &&
-          video.currentTime !== lastDetectTime) {
-        lastDetectTime = video.currentTime;
+      try {
+        if (
+          handTracker &&
+          video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+          video.videoWidth > 0 &&
+          video.currentTime !== lastVideoTime
+        ) {
+          lastVideoTime = video.currentTime;
 
-        const result = handTracker.detectForVideo(
-          video, performance.now()
-        );
+          const now = performance.now();
+          const result = handTracker.detectForVideo(video, now);
+          lastDetectTime = now;
 
-        if (result.landmarks && result.landmarks.length > 0) {
-          processHand(result.landmarks[0]);
-        } else {
-          drawing = false;
-          lastPoint = null;
-          wasFist = false;
-          status.textContent = "No hand detected";
+          if (result.landmarks && result.landmarks.length > 0) {
+            processHand(result.landmarks[0]);
+          } else {
+            resetGesture();
+            wasFist = false;
+            status.textContent = "No hand detected";
+          }
         }
+      } catch (err) {
+        console.error("Tracking error:", err);
+        resetGesture();
+        status.textContent = "Tracking error — retrying";
       }
 
-      requestAnimationFrame(trackHands);
+      if (running) {
+        animationId = requestAnimationFrame(trackHands);
+      }
     }
 
     startBtn.addEventListener("click", startCamera);
+
+    // Release camera and resources if the page is closed.
+    window.addEventListener("pagehide", () => {
+      running = false;
+      cancelAnimationFrame(animationId);
+
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+      }
+
+      if (handTracker) {
+        handTracker.close();
+        handTracker = null;
+      }
+    });
   </script>
 </body>
 </html>
