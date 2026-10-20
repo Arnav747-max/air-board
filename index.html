@@ -1,0 +1,359 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1, maximum-scale=1,
+                 user-scalable=no">
+  <title>Air Blackboard</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #000;
+      color: white;
+      font-family: Arial, sans-serif;
+      touch-action: none;
+    }
+
+    #board {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      background: black;
+      touch-action: none;
+    }
+
+    #camera {
+      display: none;
+    }
+
+    #topbar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      padding: 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      pointer-events: none;
+    }
+
+    #title {
+      font-size: 18px;
+      font-weight: bold;
+      text-shadow: 0 1px 5px #555;
+    }
+
+    #status {
+      font-size: 12px;
+      color: #aaa;
+      margin-top: 5px;
+    }
+
+    button {
+      pointer-events: auto;
+      border: 1px solid #444;
+      border-radius: 10px;
+      background: #181818;
+      color: white;
+      padding: 11px 15px;
+      font-size: 14px;
+    }
+
+    #hint {
+      position: fixed;
+      bottom: 22px;
+      left: 12px;
+      right: 12px;
+      text-align: center;
+      font-size: 13px;
+      color: #999;
+      pointer-events: none;
+    }
+
+    #start {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: min(85%, 340px);
+      padding: 25px;
+      border-radius: 18px;
+      background: #151515;
+      text-align: center;
+      z-index: 5;
+    }
+
+    #start button {
+      margin-top: 12px;
+      background: #fff;
+      color: #000;
+      font-weight: bold;
+    }
+
+    #start p {
+      color: #bbb;
+      line-height: 1.5;
+      font-size: 14px;
+    }
+  </style>
+</head>
+
+<body>
+  <canvas id="board"></canvas>
+  <video id="camera" autoplay playsinline muted></video>
+
+  <div id="topbar">
+    <div>
+      <div id="title">✍ Air Blackboard</div>
+      <div id="status">Camera not started</div>
+    </div>
+    <button id="clear">Clear board</button>
+  </div>
+
+  <div id="hint">
+    Pinch to draw · Open fingers to stop · Make a fist to clear
+  </div>
+
+  <div id="start">
+    <h2>Air Blackboard</h2>
+    <p>
+      Draw with your index finger and thumb.
+      Allow camera access when prompted.
+    </p>
+    <button id="startBtn">Start Camera</button>
+    <p id="error"></p>
+  </div>
+
+  <script type="module">
+    import {
+      FilesetResolver,
+      HandLandmarker
+    } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
+
+    const canvas = document.getElementById("board");
+    const ctx = canvas.getContext("2d");
+    const video = document.getElementById("camera");
+    const status = document.getElementById("status");
+    const startPanel = document.getElementById("start");
+    const startBtn = document.getElementById("startBtn");
+    const errorBox = document.getElementById("error");
+
+    let handTracker;
+    let running = false;
+    let drawing = false;
+    let lastPoint = null;
+    let wasFist = false;
+    let lastClearTime = 0;
+    let lastDetectTime = -1;
+
+    function resizeCanvas() {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+      canvas.width = Math.round(innerWidth * dpr);
+      canvas.height = Math.round(innerHeight * dpr);
+      canvas.style.width = innerWidth + "px";
+      canvas.style.height = innerHeight + "px";
+
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.lineWidth = 5;
+      ctx.strokeStyle = "#ffffff";
+    }
+
+    window.addEventListener("resize", resizeCanvas);
+    resizeCanvas();
+
+    function clearBoard() {
+      ctx.clearRect(0, 0, innerWidth, innerHeight);
+      lastPoint = null;
+      drawing = false;
+    }
+
+    document.getElementById("clear").addEventListener(
+      "click", clearBoard
+    );
+
+    function distance(a, b) {
+      return Math.hypot(a.x - b.x, a.y - b.y);
+    }
+
+    // A fist is estimated by checking whether the four
+    // long fingertips have curled toward the palm.
+    function isFist(lm) {
+      const wrist = lm[0];
+      const fingers = [
+        [8, 6],    // index tip and PIP
+        [12, 10],  // middle
+        [16, 14],  // ring
+        [20, 18]   // little
+      ];
+
+      let curled = 0;
+
+      for (const [tip, pip] of fingers) {
+        if (
+          distance(lm[tip], wrist) <
+          distance(lm[pip], wrist) * 1.12
+        ) {
+          curled++;
+        }
+      }
+
+      return curled >= 4;
+    }
+
+    function drawSegment(a, b) {
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.stroke();
+    }
+
+    function processHand(lm) {
+      const thumb = lm[4];
+      const index = lm[8];
+
+      // Distance is measured relative to hand size so
+      // the pinch can work at different camera distances.
+      const handSize = Math.max(distance(lm[0], lm[9]), 0.001);
+      const pinchDistance = distance(thumb, index) / handSize;
+
+      const pinching = pinchDistance < 0.28;
+      const fist = isFist(lm);
+
+      // Fist clears once per gesture, not every video frame.
+      if (fist && !wasFist &&
+          performance.now() - lastClearTime > 900) {
+        clearBoard();
+        lastClearTime = performance.now();
+      }
+
+      wasFist = fist;
+
+      if (fist) {
+        drawing = false;
+        lastPoint = null;
+        status.textContent = "✊ Fist detected — board cleared";
+        return;
+      }
+
+      if (pinching) {
+        // Use the index fingertip as the drawing point.
+        const point = {
+          x: (1 - index.x) * innerWidth,
+          y: index.y * innerHeight
+        };
+
+        if (lastPoint && drawing) {
+          drawSegment(lastPoint, point);
+        }
+
+        lastPoint = point;
+        drawing = true;
+        status.textContent = "✍ Drawing";
+      } else {
+        drawing = false;
+        lastPoint = null;
+        status.textContent = "✋ Ready — pinch to draw";
+      }
+    }
+
+    async function startCamera() {
+      startBtn.disabled = true;
+      startBtn.textContent = "Loading...";
+      errorBox.textContent = "";
+
+      try {
+        if (!navigator.mediaDevices?.getUserMedia) {
+          throw new Error(
+            "Camera access requires HTTPS or localhost."
+          );
+        }
+
+        const vision = await FilesetResolver.forVisionTasks(
+          "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
+        );
+
+        handTracker = await HandLandmarker.createFromOptions(
+          vision,
+          {
+            baseOptions: {
+              modelAssetPath:
+                "https://storage.googleapis.com/mediapipe-models/" +
+                "hand_landmarker/hand_landmarker/float16/1/" +
+                "hand_landmarker.task",
+              delegate: "GPU"
+            },
+            runningMode: "VIDEO",
+            numHands: 1
+          }
+        );
+
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: {
+            facingMode: "user",
+            width: { ideal: 640 },
+            height: { ideal: 480 }
+          }
+        });
+
+        video.srcObject = stream;
+        await video.play();
+
+        running = true;
+        startPanel.style.display = "none";
+        status.textContent = "Show your hand to the camera";
+
+        requestAnimationFrame(trackHands);
+      } catch (err) {
+        console.error(err);
+        errorBox.textContent =
+          "Could not start: " + err.message +
+          " Check your internet and camera permission.";
+        startBtn.disabled = false;
+        startBtn.textContent = "Try Again";
+      }
+    }
+
+    function trackHands() {
+      if (!running) return;
+
+      if (video.readyState >= 2 &&
+          video.currentTime !== lastDetectTime) {
+        lastDetectTime = video.currentTime;
+
+        const result = handTracker.detectForVideo(
+          video, performance.now()
+        );
+
+        if (result.landmarks && result.landmarks.length > 0) {
+          processHand(result.landmarks[0]);
+        } else {
+          drawing = false;
+          lastPoint = null;
+          wasFist = false;
+          status.textContent = "No hand detected";
+        }
+      }
+
+      requestAnimationFrame(trackHands);
+    }
+
+    startBtn.addEventListener("click", startCamera);
+  </script>
+</body>
+</html>
