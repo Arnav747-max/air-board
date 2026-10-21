@@ -36,6 +36,23 @@
       display: none;
     }
 
+    #pointer {
+      position: fixed;
+      left: 0;
+      top: 0;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #ffeb00;
+      border: 2px solid white;
+      box-shadow: 0 0 10px #ffeb00;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      z-index: 10;
+      display: none;
+      will-change: left, top;
+    }
+
     #topbar {
       position: fixed;
       top: 0;
@@ -47,6 +64,7 @@
       align-items: center;
       gap: 10px;
       pointer-events: none;
+      z-index: 5;
     }
 
     #title {
@@ -80,6 +98,7 @@
       font-size: 13px;
       color: #999;
       pointer-events: none;
+      z-index: 5;
     }
 
     #start {
@@ -92,7 +111,7 @@
       border-radius: 18px;
       background: #151515;
       text-align: center;
-      z-index: 5;
+      z-index: 20;
     }
 
     #start button {
@@ -112,6 +131,7 @@
 
 <body>
   <canvas id="board"></canvas>
+  <div id="pointer"></div>
   <video id="camera" autoplay playsinline muted></video>
 
   <div id="topbar">
@@ -123,13 +143,15 @@
   </div>
 
   <div id="hint">
-    Pinch to draw · Open fingers to stop · Make a fist to clear
+    🟡 Pointer · Pinch to draw · Release to stop · Fist to clear
   </div>
 
   <div id="start">
     <h2>Air Blackboard</h2>
-    <p>Draw with your index finger and thumb.
-       Allow camera access when prompted.</p>
+    <p>
+      Point with your index finger and pinch your thumb
+      and index finger to draw.
+    </p>
     <button id="startBtn">Start Camera</button>
     <p id="error"></p>
   </div>
@@ -147,52 +169,52 @@
     });
 
     const video = document.getElementById("camera");
+    const pointer = document.getElementById("pointer");
     const status = document.getElementById("status");
     const startPanel = document.getElementById("start");
     const startBtn = document.getElementById("startBtn");
     const errorBox = document.getElementById("error");
 
     let handTracker = null;
+    let stream = null;
     let running = false;
     let starting = false;
     let animationId = 0;
-    let stream = null;
 
     let drawing = false;
     let pinching = false;
     let lastPoint = null;
     let smoothPoint = null;
+    let pointerPoint = null;
 
     let wasFist = false;
     let lastClearTime = 0;
     let lastVideoTime = -1;
-    let lastDetectTime = 0;
 
-    // Lower resolution improves performance on slower phones.
+    // Camera settings
     const CAMERA_WIDTH = 480;
     const CAMERA_HEIGHT = 360;
 
-    // Larger alpha = faster response, smaller = smoother.
-    const SMOOTHING = 0.45;
+    // Lower values smooth more but add some delay.
+    const POINTER_SMOOTHING = 0.18;
+    const DRAWING_SMOOTHING = 0.22;
 
     function resizeCanvas() {
       const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
-      const width = innerWidth;
-      const height = innerHeight;
 
-      canvas.width = Math.round(width * dpr);
-      canvas.height = Math.round(height * dpr);
-      canvas.style.width = width + "px";
-      canvas.style.height = height + "px";
+      canvas.width = Math.round(innerWidth * dpr);
+      canvas.height = Math.round(innerHeight * dpr);
+      canvas.style.width = innerWidth + "px";
+      canvas.style.height = innerHeight + "px";
 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.fillStyle = "#000";
-      ctx.fillRect(0, 0, width, height);
+      ctx.fillRect(0, 0, innerWidth, innerHeight);
 
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
       ctx.lineWidth = 5;
-      ctx.strokeStyle = "#fff";
+      ctx.strokeStyle = "#ffffff";
     }
 
     window.addEventListener("resize", resizeCanvas);
@@ -203,6 +225,7 @@
       pinching = false;
       lastPoint = null;
       smoothPoint = null;
+      // Keep pointerPoint so the yellow dot stays continuous.
     }
 
     function clearBoard() {
@@ -253,11 +276,35 @@
       const thumb = lm[4];
       const index = lm[8];
 
-      const handSize = Math.max(distance(lm[0], lm[9]), 0.001);
-      const pinchDistance = distance(thumb, index) / handSize;
+      const handSize = Math.max(
+        distance(lm[0], lm[9]), 0.001
+      );
 
-      // Hysteresis: easier to start a pinch than to release it.
-      // This prevents rapid drawing on/off flickering.
+      const pinchDistance =
+        distance(thumb, index) / handSize;
+
+      // Raw fingertip target, mirrored for the selfie camera.
+      const target = {
+        x: (1 - index.x) * innerWidth,
+        y: index.y * innerHeight
+      };
+
+      // Smooth the yellow pointer itself.
+      if (!pointerPoint) {
+        pointerPoint = { ...target };
+      } else {
+        pointerPoint.x +=
+          (target.x - pointerPoint.x) * POINTER_SMOOTHING;
+
+        pointerPoint.y +=
+          (target.y - pointerPoint.y) * POINTER_SMOOTHING;
+      }
+
+      pointer.style.display = "block";
+      pointer.style.left = pointerPoint.x + "px";
+      pointer.style.top = pointerPoint.y + "px";
+
+      // Pinch hysteresis prevents rapid switching.
       if (pinching) {
         if (pinchDistance > 0.34) pinching = false;
       } else {
@@ -267,7 +314,11 @@
       const fist = isFist(lm);
       const now = performance.now();
 
-      if (fist && !wasFist && now - lastClearTime > 900) {
+      if (
+        fist &&
+        !wasFist &&
+        now - lastClearTime > 900
+      ) {
         clearBoard();
         lastClearTime = now;
         status.textContent = "✊ Board cleared";
@@ -283,31 +334,29 @@
 
       if (!pinching) {
         resetGesture();
-        status.textContent = "✋ Ready — pinch to draw";
+        status.textContent = "🟡 Pointer ready — pinch to draw";
         return;
       }
 
-      // Mirror the horizontal position for a selfie-camera feel.
-      const target = {
-        x: (1 - index.x) * innerWidth,
-        y: index.y * innerHeight
-      };
-
-      // Exponential smoothing to reduce landmark jitter.
+      // Draw using the same smoothed position as the pointer.
+      // This prevents the white line from separating from the dot.
       if (!smoothPoint) {
-        smoothPoint = { ...target };
+        smoothPoint = { ...pointerPoint };
       } else {
-        smoothPoint.x += (target.x - smoothPoint.x) * SMOOTHING;
-        smoothPoint.y += (target.y - smoothPoint.y) * SMOOTHING;
+        smoothPoint.x +=
+          (pointerPoint.x - smoothPoint.x) * DRAWING_SMOOTHING;
+
+        smoothPoint.y +=
+          (pointerPoint.y - smoothPoint.y) * DRAWING_SMOOTHING;
       }
 
-      const point = { ...smoothPoint };
+      const drawPoint = { ...smoothPoint };
 
       if (lastPoint && drawing) {
-        drawSegment(lastPoint, point);
+        drawSegment(lastPoint, drawPoint);
       }
 
-      lastPoint = point;
+      lastPoint = drawPoint;
       drawing = true;
       status.textContent = "✍ Drawing";
     }
@@ -346,7 +395,7 @@
           "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
         );
 
-        // Try GPU first, then CPU if GPU initialization fails.
+        // Try GPU, then CPU if GPU initialization fails.
         try {
           handTracker = await createTracker(vision, "GPU");
         } catch (gpuError) {
@@ -370,13 +419,14 @@
         running = true;
         startPanel.style.display = "none";
         status.textContent = "Show your hand to the camera";
-
         lastVideoTime = -1;
-        lastDetectTime = 0;
+        pointerPoint = null;
 
         animationId = requestAnimationFrame(trackHands);
+
       } catch (err) {
         console.error(err);
+        running = false;
 
         if (stream) {
           stream.getTracks().forEach(track => track.stop());
@@ -388,12 +438,16 @@
           handTracker = null;
         }
 
+        pointer.style.display = "none";
+        pointerPoint = null;
+
         errorBox.textContent =
           "Could not start: " + err.message +
           " Check your internet and camera permission.";
 
         startBtn.disabled = false;
         startBtn.textContent = "Try Again";
+
       } finally {
         starting = false;
       }
@@ -411,21 +465,25 @@
         ) {
           lastVideoTime = video.currentTime;
 
-          const now = performance.now();
-          const result = handTracker.detectForVideo(video, now);
-          lastDetectTime = now;
+          const result = handTracker.detectForVideo(
+            video, performance.now()
+          );
 
           if (result.landmarks && result.landmarks.length > 0) {
             processHand(result.landmarks[0]);
           } else {
             resetGesture();
             wasFist = false;
+            pointer.style.display = "none";
+            pointerPoint = null;
             status.textContent = "No hand detected";
           }
         }
       } catch (err) {
         console.error("Tracking error:", err);
         resetGesture();
+        pointer.style.display = "none";
+        pointerPoint = null;
         status.textContent = "Tracking error — retrying";
       }
 
@@ -436,13 +494,13 @@
 
     startBtn.addEventListener("click", startCamera);
 
-    // Release camera and resources if the page is closed.
     window.addEventListener("pagehide", () => {
       running = false;
       cancelAnimationFrame(animationId);
 
       if (stream) {
         stream.getTracks().forEach(track => track.stop());
+        stream = null;
       }
 
       if (handTracker) {
