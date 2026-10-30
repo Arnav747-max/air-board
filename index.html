@@ -1,513 +1,715 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport"
-        content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-  <meta name="theme-color" content="#000000">
-  <title>Air Blackboard</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Air Blackboard</title>
 
-  <style>
-    * {
-      box-sizing: border-box;
-      -webkit-tap-highlight-color: transparent;
-    }
+<style>
+* {
+    box-sizing: border-box;
+}
 
-    body {
-      margin: 0;
-      overflow: hidden;
-      background: #000;
-      color: white;
-      font-family: Arial, sans-serif;
-      touch-action: none;
-    }
+body {
+    margin: 0;
+    overflow: hidden;
+    background: black;
+    font-family: Arial, sans-serif;
+}
 
-    #board {
-      position: fixed;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      background: #000;
-      touch-action: none;
-    }
+#board {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    background: black;
+    touch-action: none;
+}
 
-    #camera {
-      display: none;
-    }
+#camera {
+    display: none;
+}
 
-    #pointer {
-      position: fixed;
-      left: 0;
-      top: 0;
-      width: 18px;
-      height: 18px;
-      border-radius: 50%;
-      background: #ffeb00;
-      border: 2px solid white;
-      box-shadow: 0 0 10px #ffeb00;
-      transform: translate(-50%, -50%);
-      pointer-events: none;
-      z-index: 10;
-      display: none;
-      will-change: left, top;
-    }
+#pointer {
+    position: fixed;
+    width: 18px;
+    height: 18px;
+    background: yellow;
+    border: 2px solid white;
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 10;
+    display: none;
+    transform: translate(-50%, -50%);
+    box-shadow: 0 0 12px yellow;
+}
 
-    #topbar {
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      padding: 16px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 10px;
-      pointer-events: none;
-      z-index: 5;
-    }
+#topbar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    padding: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    color: white;
+    z-index: 20;
+    pointer-events: none;
+}
 
-    #title {
-      font-size: 18px;
-      font-weight: bold;
-      text-shadow: 0 1px 5px #555;
-    }
+#title {
+    font-size: 18px;
+    font-weight: bold;
+}
 
-    #status {
-      font-size: 12px;
-      color: #aaa;
-      margin-top: 5px;
-    }
+#controls {
+    display: flex;
+    gap: 8px;
+    pointer-events: auto;
+}
 
-    button {
-      pointer-events: auto;
-      border: 1px solid #444;
-      border-radius: 10px;
-      background: #181818;
-      color: white;
-      padding: 11px 15px;
-      font-size: 14px;
-    }
+button {
+    border: none;
+    padding: 9px 14px;
+    border-radius: 7px;
+    background: #292929;
+    color: white;
+    font-size: 14px;
+    cursor: pointer;
+}
 
-    #hint {
-      position: fixed;
-      bottom: 22px;
-      left: 12px;
-      right: 12px;
-      text-align: center;
-      font-size: 13px;
-      color: #999;
-      pointer-events: none;
-      z-index: 5;
-    }
+button:active {
+    background: #555;
+}
 
-    #start {
-      position: fixed;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      width: min(85%, 340px);
-      padding: 25px;
-      border-radius: 18px;
-      background: #151515;
-      text-align: center;
-      z-index: 20;
-    }
+#settingsPanel {
+    position: fixed;
+    top: 65px;
+    right: 12px;
+    width: 240px;
+    padding: 16px;
+    background: rgba(30,30,30,0.96);
+    color: white;
+    border-radius: 12px;
+    z-index: 30;
+    display: none;
+}
 
-    #start button {
-      margin-top: 12px;
-      background: white;
-      color: black;
-      font-weight: bold;
-    }
+#settingsPanel.open {
+    display: block;
+}
 
-    #start p {
-      color: #bbb;
-      line-height: 1.5;
-      font-size: 14px;
-    }
-  </style>
+.setting {
+    margin-bottom: 18px;
+}
+
+.setting label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+    margin-bottom: 9px;
+}
+
+.setting input {
+    width: 100%;
+    accent-color: yellow;
+}
+
+#status {
+    position: fixed;
+    bottom: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: white;
+    font-size: 12px;
+    background: rgba(30,30,30,0.7);
+    padding: 7px 12px;
+    border-radius: 20px;
+    z-index: 15;
+    pointer-events: none;
+}
+</style>
 </head>
 
 <body>
-  <canvas id="board"></canvas>
-  <div id="pointer"></div>
-  <video id="camera" autoplay playsinline muted></video>
 
-  <div id="topbar">
-    <div>
-      <div id="title">✍ Air Blackboard</div>
-      <div id="status">Camera not started</div>
+<canvas id="board"></canvas>
+<video id="camera" autoplay playsinline></video>
+
+<div id="pointer"></div>
+
+<div id="topbar">
+    <div id="title">Air Blackboard</div>
+
+    <div id="controls">
+        <button id="clearButton">Clear</button>
+        <button id="settingsButton">▼</button>
     </div>
-    <button id="clear">Clear board</button>
-  </div>
+</div>
 
-  <div id="hint">
-    🟡 Pointer · Pinch to draw · Release to stop · Fist to clear
-  </div>
+<div id="settingsPanel">
 
-  <div id="start">
-    <h2>Air Blackboard</h2>
-    <p>
-      Point with your index finger and pinch your thumb
-      and index finger to draw.
-    </p>
-    <button id="startBtn">Start Camera</button>
-    <p id="error"></p>
-  </div>
+    <div class="setting">
+        <label>
+            <span>Pen Width</span>
+            <span id="widthValue">5 px</span>
+        </label>
+        <input id="penWidth"
+               type="range"
+               min="1"
+               max="20"
+               value="5">
+    </div>
 
-  <script type="module">
-    import {
-      FilesetResolver,
-      HandLandmarker
-    } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
+    <div class="setting">
+        <label>
+            <span>Smoothness</span>
+            <span id="smoothValue">80%</span>
+        </label>
+        <input id="smoothness"
+               type="range"
+               min="0"
+               max="100"
+               value="80">
+    </div>
 
-    const canvas = document.getElementById("board");
-    const ctx = canvas.getContext("2d", {
-      alpha: false,
-      desynchronized: true
-    });
+    <div class="setting">
+        <label>
+            <span>Movement Sensitivity</span>
+            <span id="sensitivityValue">1.0×</span>
+        </label>
+        <input id="sensitivity"
+               type="range"
+               min="0.5"
+               max="2.5"
+               step="0.1"
+               value="1">
+    </div>
 
-    const video = document.getElementById("camera");
-    const pointer = document.getElementById("pointer");
-    const status = document.getElementById("status");
-    const startPanel = document.getElementById("start");
-    const startBtn = document.getElementById("startBtn");
-    const errorBox = document.getElementById("error");
+</div>
 
-    let handTracker = null;
-    let stream = null;
-    let running = false;
-    let starting = false;
-    let animationId = 0;
+<div id="status">Starting camera...</div>
 
-    let drawing = false;
-    let pinching = false;
-    let lastPoint = null;
-    let smoothPoint = null;
-    let pointerPoint = null;
+<script type="module">
 
-    let wasFist = false;
-    let lastClearTime = 0;
-    let lastVideoTime = -1;
+import {
+    HandLandmarker,
+    FilesetResolver
+} from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
 
-    // Camera settings
-    const CAMERA_WIDTH = 480;
-    const CAMERA_HEIGHT = 360;
+const canvas = document.getElementById("board");
+const ctx = canvas.getContext("2d");
 
-    // Lower values smooth more but add some delay.
-    const POINTER_SMOOTHING = 0.18;
-    const DRAWING_SMOOTHING = 0.22;
+const video = document.getElementById("camera");
+const pointer = document.getElementById("pointer");
+const statusText = document.getElementById("status");
 
-    function resizeCanvas() {
-      const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+const penWidth = document.getElementById("penWidth");
+const smoothness = document.getElementById("smoothness");
+const sensitivity = document.getElementById("sensitivity");
 
-      canvas.width = Math.round(innerWidth * dpr);
-      canvas.height = Math.round(innerHeight * dpr);
-      canvas.style.width = innerWidth + "px";
-      canvas.style.height = innerHeight + "px";
+const widthValue = document.getElementById("widthValue");
+const smoothValue = document.getElementById("smoothValue");
+const sensitivityValue = document.getElementById("sensitivityValue");
 
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.fillStyle = "#000";
-      ctx.fillRect(0, 0, innerWidth, innerHeight);
+const settingsButton = document.getElementById("settingsButton");
+const settingsPanel = document.getElementById("settingsPanel");
 
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-      ctx.lineWidth = 5;
-      ctx.strokeStyle = "#ffffff";
+let handLandmarker;
+let lastVideoTime = -1;
+
+let isDrawing = false;
+let isPinching = false;
+let fistHandled = false;
+
+let lastPoint = null;
+let pointerPoint = null;
+let pointerTarget = null;
+let previousRawPoint = null;
+
+let lastFistTime = 0;
+
+const FIST_COOLDOWN = 900;
+
+// Canvas setup
+
+function resizeCanvas() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+}
+
+window.addEventListener("resize", resizeCanvas);
+resizeCanvas();
+
+
+// Settings
+
+function getPenWidth() {
+    return Number(penWidth.value);
+}
+
+function getSmoothing() {
+    const value = Number(smoothness.value);
+
+    // Higher smoothness means slower, smoother movement.
+    return 0.65 - (value / 100) * 0.57;
+}
+
+function getSensitivity() {
+    return Number(sensitivity.value);
+}
+
+penWidth.addEventListener("input", () => {
+    widthValue.textContent = getPenWidth() + " px";
+});
+
+smoothness.addEventListener("input", () => {
+    smoothValue.textContent = smoothness.value + "%";
+});
+
+sensitivity.addEventListener("input", () => {
+    sensitivityValue.textContent =
+        getSensitivity().toFixed(1) + "×";
+});
+
+
+// Settings dropdown
+
+settingsButton.addEventListener("click", () => {
+    settingsPanel.classList.toggle("open");
+
+    settingsButton.textContent =
+        settingsPanel.classList.contains("open") ? "▲" : "▼";
+});
+
+document.addEventListener("pointerdown", event => {
+    if (
+        !settingsPanel.contains(event.target) &&
+        event.target !== settingsButton
+    ) {
+        settingsPanel.classList.remove("open");
+        settingsButton.textContent = "▼";
     }
+});
 
-    window.addEventListener("resize", resizeCanvas);
-    resizeCanvas();
 
-    function resetGesture() {
-      drawing = false;
-      pinching = false;
-      lastPoint = null;
-      smoothPoint = null;
-      // Keep pointerPoint so the yellow dot stays continuous.
-    }
+// Clear board
 
-    function clearBoard() {
-      ctx.fillStyle = "#000";
-      ctx.fillRect(0, 0, innerWidth, innerHeight);
-      resetGesture();
-    }
+function clearBoard() {
+    ctx.fillStyle = "black";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    document.getElementById("clear").addEventListener(
-      "click", clearBoard
-    );
+    resetGesture();
+}
 
-    function distance(a, b) {
-      return Math.hypot(a.x - b.x, a.y - b.y);
-    }
+document.getElementById("clearButton")
+    .addEventListener("click", clearBoard);
 
-    function isFist(lm) {
-      const wrist = lm[0];
-      const fingers = [
+
+// Reset drawing gesture
+
+function resetGesture() {
+    isDrawing = false;
+    isPinching = false;
+    fistHandled = false;
+    lastPoint = null;
+}
+
+
+// Distance between two landmarks
+
+function distance(a, b) {
+    const dx = a.x - b.x;
+    const dy = a.y - b.y;
+
+    return Math.sqrt(dx * dx + dy * dy);
+}
+
+
+// Check whether fingers are folded
+
+function isFist(lm) {
+    const wrist = lm[0];
+
+    const fingers = [
         [8, 6],
         [12, 10],
         [16, 14],
         [20, 18]
-      ];
+    ];
 
-      let curled = 0;
+    let folded = 0;
 
-      for (const [tip, pip] of fingers) {
+    for (const [tip, pip] of fingers) {
         if (
-          distance(lm[tip], wrist) <
-          distance(lm[pip], wrist) * 1.12
+            distance(lm[tip], wrist) <
+            distance(lm[pip], wrist) * 1.12
         ) {
-          curled++;
+            folded++;
         }
-      }
-
-      return curled >= 4;
     }
 
-    function drawSegment(a, b) {
-      ctx.beginPath();
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(b.x, b.y);
-      ctx.stroke();
-    }
+    return folded >= 4;
+}
 
-    function processHand(lm) {
-      const thumb = lm[4];
-      const index = lm[8];
 
-      const handSize = Math.max(
-        distance(lm[0], lm[9]), 0.001
-      );
+// Draw line
 
-      const pinchDistance =
-        distance(thumb, index) / handSize;
-
-      // Raw fingertip target, mirrored for the selfie camera.
-      const target = {
-        x: (1 - index.x) * innerWidth,
-        y: index.y * innerHeight
-      };
-
-      // Smooth the yellow pointer itself.
-      if (!pointerPoint) {
-        pointerPoint = { ...target };
-      } else {
-        pointerPoint.x +=
-          (target.x - pointerPoint.x) * POINTER_SMOOTHING;
-
-        pointerPoint.y +=
-          (target.y - pointerPoint.y) * POINTER_SMOOTHING;
-      }
-
-      pointer.style.display = "block";
-      pointer.style.left = pointerPoint.x + "px";
-      pointer.style.top = pointerPoint.y + "px";
-
-      // Pinch hysteresis prevents rapid switching.
-      if (pinching) {
-        if (pinchDistance > 0.34) pinching = false;
-      } else {
-        if (pinchDistance < 0.25) pinching = true;
-      }
-
-      const fist = isFist(lm);
-      const now = performance.now();
-
-      if (
-        fist &&
-        !wasFist &&
-        now - lastClearTime > 900
-      ) {
-        clearBoard();
-        lastClearTime = now;
-        status.textContent = "✊ Board cleared";
-      }
-
-      wasFist = fist;
-
-      if (fist) {
-        resetGesture();
-        status.textContent = "✊ Fist detected";
+function drawLine(point) {
+    if (!lastPoint) {
+        lastPoint = {
+            x: point.x,
+            y: point.y
+        };
         return;
-      }
-
-      if (!pinching) {
-        resetGesture();
-        status.textContent = "🟡 Pointer ready — pinch to draw";
-        return;
-      }
-
-      // Draw using the same smoothed position as the pointer.
-      // This prevents the white line from separating from the dot.
-      if (!smoothPoint) {
-        smoothPoint = { ...pointerPoint };
-      } else {
-        smoothPoint.x +=
-          (pointerPoint.x - smoothPoint.x) * DRAWING_SMOOTHING;
-
-        smoothPoint.y +=
-          (pointerPoint.y - smoothPoint.y) * DRAWING_SMOOTHING;
-      }
-
-      const drawPoint = { ...smoothPoint };
-
-      if (lastPoint && drawing) {
-        drawSegment(lastPoint, drawPoint);
-      }
-
-      lastPoint = drawPoint;
-      drawing = true;
-      status.textContent = "✍ Drawing";
     }
 
-    async function createTracker(vision, delegate) {
-      return HandLandmarker.createFromOptions(vision, {
-        baseOptions: {
-          modelAssetPath:
-            "https://storage.googleapis.com/mediapipe-models/" +
-            "hand_landmarker/hand_landmarker/float16/1/" +
-            "hand_landmarker.task",
-          delegate
-        },
-        runningMode: "VIDEO",
-        numHands: 1,
-        minHandDetectionConfidence: 0.55,
-        minHandPresenceConfidence: 0.55,
-        minTrackingConfidence: 0.55
-      });
-    }
+    ctx.beginPath();
 
-    async function startCamera() {
-      if (starting || running) return;
+    ctx.moveTo(lastPoint.x, lastPoint.y);
+    ctx.lineTo(point.x, point.y);
 
-      starting = true;
-      startBtn.disabled = true;
-      startBtn.textContent = "Loading...";
-      errorBox.textContent = "";
+    ctx.strokeStyle = "white";
+    ctx.lineWidth = getPenWidth();
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
 
-      try {
-        if (!navigator.mediaDevices?.getUserMedia) {
-          throw new Error("Camera requires HTTPS or localhost.");
+    ctx.stroke();
+
+    lastPoint = {
+        x: point.x,
+        y: point.y
+    };
+}
+
+
+// Update pointer position using relative movement
+
+function updatePointer(index) {
+
+    // Mirror horizontal movement.
+    const rawPoint = {
+        x: (1 - index.x) * window.innerWidth,
+        y: index.y * window.innerHeight
+    };
+
+    // First detection: place pointer at fingertip.
+    if (!previousRawPoint || !pointerTarget || !pointerPoint) {
+
+        previousRawPoint = {
+            x: rawPoint.x,
+            y: rawPoint.y
+        };
+
+        pointerTarget = {
+            x: rawPoint.x,
+            y: rawPoint.y
+        };
+
+        pointerPoint = {
+            x: rawPoint.x,
+            y: rawPoint.y
+        };
+
+    } else {
+
+        // Calculate how far the fingertip moved since
+        // the previous frame.
+        const dx = rawPoint.x - previousRawPoint.x;
+        const dy = rawPoint.y - previousRawPoint.y;
+
+        const movement = Math.hypot(dx, dy);
+
+        // Ignore extremely small tracking noise.
+        if (movement > 0.6) {
+
+            const gain = getSensitivity();
+
+            // Multiply relative movement by sensitivity.
+            pointerTarget.x += dx * gain;
+            pointerTarget.y += dy * gain;
         }
+
+        previousRawPoint.x = rawPoint.x;
+        previousRawPoint.y = rawPoint.y;
+    }
+
+    // Keep pointer inside screen.
+    pointerTarget.x = Math.max(
+        0,
+        Math.min(window.innerWidth, pointerTarget.x)
+    );
+
+    pointerTarget.y = Math.max(
+        0,
+        Math.min(window.innerHeight, pointerTarget.y)
+    );
+
+    // Smooth pointer movement.
+    const alpha = getSmoothing();
+
+    pointerPoint.x +=
+        (pointerTarget.x - pointerPoint.x) * alpha;
+
+    pointerPoint.y +=
+        (pointerTarget.y - pointerPoint.y) * alpha;
+
+    pointer.style.left = pointerPoint.x + "px";
+    pointer.style.top = pointerPoint.y + "px";
+
+    pointer.style.display = "block";
+
+    return pointerPoint;
+}
+
+
+// Process detected hand
+
+function processHand(lm) {
+
+    const index = lm[8];
+    const thumb = lm[4];
+
+    const pinchDistance = distance(index, thumb);
+
+    // Normalize pinch distance using hand size.
+    const handSize = Math.max(
+        distance(lm[0], lm[9]),
+        0.001
+    );
+
+    const normalizedPinch = pinchDistance / handSize;
+
+    // Stable pinch thresholds.
+    const PINCH_ENTER = 0.25;
+    const PINCH_EXIT = 0.34;
+
+    // Update pointer.
+    const point = updatePointer(index);
+
+    // Fist detection.
+    if (isFist(lm)) {
+
+        isDrawing = false;
+        isPinching = false;
+        lastPoint = null;
+
+        const now = Date.now();
+
+        if (
+            !fistHandled &&
+            now - lastFistTime > FIST_COOLDOWN
+        ) {
+            clearBoard();
+
+            fistHandled = true;
+            lastFistTime = now;
+        }
+
+        statusText.textContent = "Fist detected - Board cleared";
+        return;
+    }
+
+    fistHandled = false;
+
+    // Pinch detection with hysteresis.
+    if (!isPinching && normalizedPinch < PINCH_ENTER) {
+        isPinching = true;
+    }
+
+    if (isPinching && normalizedPinch > PINCH_EXIT) {
+        isPinching = false;
+    }
+
+    // Drawing.
+    if (isPinching) {
+
+        if (!isDrawing) {
+            isDrawing = true;
+            lastPoint = {
+                x: point.x,
+                y: point.y
+            };
+        }
+
+        drawLine(point);
+
+        statusText.textContent = "Drawing";
+    } else {
+
+        isDrawing = false;
+        lastPoint = null;
+
+        statusText.textContent = "Hand detected - Pinch to draw";
+    }
+}
+
+
+// Start MediaPipe
+
+async function initializeHandTracking() {
+
+    try {
+
+        statusText.textContent = "Loading hand tracking...";
 
         const vision = await FilesetResolver.forVisionTasks(
-          "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
+            "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
         );
 
-        // Try GPU, then CPU if GPU initialization fails.
+        const model =
+            "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
+
         try {
-          handTracker = await createTracker(vision, "GPU");
+
+            handLandmarker = await HandLandmarker.createFromOptions(
+                vision,
+                {
+                    baseOptions: {
+                        modelAssetPath: model,
+                        delegate: "GPU"
+                    },
+
+                    runningMode: "VIDEO",
+                    numHands: 1,
+
+                    minHandDetectionConfidence: 0.55,
+                    minHandPresenceConfidence: 0.55,
+                    minTrackingConfidence: 0.55
+                }
+            );
+
         } catch (gpuError) {
-          console.warn("GPU unavailable; trying CPU", gpuError);
-          handTracker = await createTracker(vision, "CPU");
+
+            console.warn("GPU unavailable. Using CPU.", gpuError);
+
+            handLandmarker = await HandLandmarker.createFromOptions(
+                vision,
+                {
+                    baseOptions: {
+                        modelAssetPath: model,
+                        delegate: "CPU"
+                    },
+
+                    runningMode: "VIDEO",
+                    numHands: 1,
+
+                    minHandDetectionConfidence: 0.55,
+                    minHandPresenceConfidence: 0.55,
+                    minTrackingConfidence: 0.55
+                }
+            );
         }
 
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: false,
-          video: {
-            facingMode: "user",
-            width: { ideal: CAMERA_WIDTH },
-            height: { ideal: CAMERA_HEIGHT },
-            frameRate: { ideal: 24, max: 30 }
-          }
+        await startCamera();
+
+    } catch (error) {
+
+        console.error(error);
+
+        statusText.textContent =
+            "Error loading hand tracking. Check internet connection.";
+    }
+}
+
+
+// Start camera
+
+async function startCamera() {
+
+    try {
+
+        const stream = await navigator.mediaDevices.getUserMedia({
+
+            video: {
+                facingMode: "user",
+
+                width: {
+                    ideal: 480
+                },
+
+                height: {
+                    ideal: 360
+                },
+
+                frameRate: {
+                    ideal: 30,
+                    max: 30
+                }
+            },
+
+            audio: false
         });
 
         video.srcObject = stream;
+
         await video.play();
 
-        running = true;
-        startPanel.style.display = "none";
-        status.textContent = "Show your hand to the camera";
-        lastVideoTime = -1;
-        pointerPoint = null;
+        statusText.textContent = "Camera ready - Show your hand";
 
-        animationId = requestAnimationFrame(trackHands);
+        requestAnimationFrame(detectHands);
 
-      } catch (err) {
-        console.error(err);
-        running = false;
+    } catch (error) {
 
-        if (stream) {
-          stream.getTracks().forEach(track => track.stop());
-          stream = null;
-        }
+        console.error(error);
 
-        if (handTracker) {
-          handTracker.close();
-          handTracker = null;
-        }
-
-        pointer.style.display = "none";
-        pointerPoint = null;
-
-        errorBox.textContent =
-          "Could not start: " + err.message +
-          " Check your internet and camera permission.";
-
-        startBtn.disabled = false;
-        startBtn.textContent = "Try Again";
-
-      } finally {
-        starting = false;
-      }
+        statusText.textContent =
+            "Camera error. Allow camera permission and reload.";
     }
+}
 
-    function trackHands() {
-      if (!running) return;
 
-      try {
+// Hand detection loop
+
+function detectHands() {
+
+    if (
+        video.readyState >= 2 &&
+        video.currentTime !== lastVideoTime
+    ) {
+
+        lastVideoTime = video.currentTime;
+
+        const results = handLandmarker.detectForVideo(
+            video,
+            performance.now()
+        );
+
         if (
-          handTracker &&
-          video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
-          video.videoWidth > 0 &&
-          video.currentTime !== lastVideoTime
+            results.landmarks &&
+            results.landmarks.length > 0
         ) {
-          lastVideoTime = video.currentTime;
 
-          const result = handTracker.detectForVideo(
-            video, performance.now()
-          );
+            processHand(results.landmarks[0]);
 
-          if (result.landmarks && result.landmarks.length > 0) {
-            processHand(result.landmarks[0]);
-          } else {
-            resetGesture();
-            wasFist = false;
+        } else {
+
+            // Reset movement reference when hand disappears.
             pointer.style.display = "none";
-            pointerPoint = null;
-            status.textContent = "No hand detected";
-          }
-        }
-      } catch (err) {
-        console.error("Tracking error:", err);
-        resetGesture();
-        pointer.style.display = "none";
-        pointerPoint = null;
-        status.textContent = "Tracking error — retrying";
-      }
 
-      if (running) {
-        animationId = requestAnimationFrame(trackHands);
-      }
+            previousRawPoint = null;
+            pointerTarget = null;
+            pointerPoint = null;
+
+            resetGesture();
+
+            statusText.textContent = "Show your hand";
+        }
     }
 
-    startBtn.addEventListener("click", startCamera);
+    requestAnimationFrame(detectHands);
+}
 
-    window.addEventListener("pagehide", () => {
-      running = false;
-      cancelAnimationFrame(animationId);
 
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-        stream = null;
-      }
+// Initialize
 
-      if (handTracker) {
-        handTracker.close();
-        handTracker = null;
-      }
-    });
-  </script>
+initializeHandTracking();
+
+</script>
+
 </body>
 </html>
